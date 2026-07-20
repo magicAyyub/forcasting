@@ -21,21 +21,26 @@ def generate_future_calendar(start_date, end_date):
     return df_future
 
 def apply_ratio(df, scenario_name):
-    """ Applies the channel split ratios based on the implementation plan mathematics. """
+    """ 
+    Applique la répartition des canaux (digital vs bureau). 
+    La logique respecte les contraintes physiques (fermeture des bureaux le week-end) 
+    tout en forçant la transition stratégique sur les jours de semaine.
+    """
     results = []
     for _, row in df.iterrows():
-        # Baseline ratios for weekend/holidays
+        # Les week-ends et jours fériés gardent leur comportement historique naturel (bureaux souvent fermés).
         if row['ferie'] == 1:
             digital_ratio = 0.9941
         elif row['week_end'] == 1:
             digital_ratio = 0.8639
         else:
-            # Weekday ratio transitions
-            if row['month'] <= 10:  # Up to October 2026 (Overall 75% target)
+            # Pour les jours de semaine, on force une transition progressive 
+            # afin d'atteindre mathématiquement nos cibles globales (75%, 77% puis 80%).
+            if row['month'] <= 10:  # Cible globale 75% jusqu'à octobre 2026
                 digital_ratio = 0.7248
-            elif row['month'] == 11: # November 2026 (Overall 77% target)
+            elif row['month'] == 11: # Cible globale 77% en novembre 2026
                 digital_ratio = 0.7489
-            else: # December 2026 (Overall 80% target)
+            else: # Cible globale 80% en décembre 2026
                 digital_ratio = 0.7849
                 
         bureau_ratio = 1.0 - digital_ratio

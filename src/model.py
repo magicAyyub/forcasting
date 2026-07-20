@@ -7,9 +7,20 @@ class SARIMAXWrapper:
         self.model_res = None
         
     def fit(self, X, y):
+        # Variables exogènes : facteurs externes connus qui perturbent le volume normal (jours fériés, pannes).
         exog = X[['ferie', 'week_end', 'Disponibilite_de_service']]
-        # simple SARIMAX (1, 1, 1) x (1, 0, 1, 7)
-        self.model = sm.tsa.SARIMAX(y.values, exog=exog.values, order=(1, 1, 1), seasonal_order=(1, 0, 1, 7), enforce_stationarity=False, enforce_invertibility=False)
+        
+        # Configuration du modèle SARIMAX :
+        # - order=(1, 1, 1) : Gère la tendance globale (autocorrélation à court terme).
+        # - seasonal_order=(1, 0, 1, 7) : Capte la forte saisonnalité hebdomadaire (cycle de 7 jours).
+        self.model = sm.tsa.SARIMAX(
+            y.values, 
+            exog=exog.values, 
+            order=(1, 1, 1), 
+            seasonal_order=(1, 0, 1, 7), 
+            enforce_stationarity=False, 
+            enforce_invertibility=False
+        )
         self.model_res = self.model.fit(disp=False)
         return self
         
