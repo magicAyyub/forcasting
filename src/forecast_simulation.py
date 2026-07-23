@@ -1,6 +1,9 @@
 import pandas as pd
 import numpy as np
-# pyrefly: ignore [missing-import]
+import sys
+import os
+
+sys.path.append(os.path.dirname(__file__))
 from model import evaluate_model
 
 # 2026 French Holidays
@@ -20,79 +23,42 @@ def generate_future_calendar(start_date, end_date):
     df_future['ferie'] = df_future['date'].dt.strftime('%Y-%m-%d').isin(FERIE_2026).astype(int)
     return df_future
 
-def apply_ratio(df, scenario_name):
-    """ 
-    Applique la répartition des canaux (digital vs bureau). 
-    La logique respecte les contraintes physiques (fermeture des bureaux le week-end) 
-    tout en forçant la transition stratégique sur les jours de semaine.
-    """
-    results = []
-    for _, row in df.iterrows():
-        # Les week-ends et jours fériés gardent leur comportement historique naturel (bureaux souvent fermés).
-        if row['ferie'] == 1:
-            digital_ratio = 0.9941
-        elif row['week_end'] == 1:
-            digital_ratio = 0.8639
-        else:
-            # Pour les jours de semaine, on force une transition progressive 
-            # afin d'atteindre mathématiquement nos cibles globales (75%, 77% puis 80%).
-            if row['month'] <= 10:  # Cible globale 75% jusqu'à octobre 2026
-                digital_ratio = 0.7248
-            elif row['month'] == 11: # Cible globale 77% en novembre 2026
-                digital_ratio = 0.7489
-            else: # Cible globale 80% en décembre 2026
-                digital_ratio = 0.7849
-                
-        bureau_ratio = 1.0 - digital_ratio
-        
-        results.append({
-            'date': row['date'],
-            'scenario': scenario_name,
-            'total_volume': row['predicted_total'],
-            'digital_volume': row['predicted_total'] * digital_ratio,
-            'bureau_volume': row['predicted_total'] * bureau_ratio,
-            'digital_ratio_applied': digital_ratio
-        })
-    return pd.DataFrame(results)
-
 def run_simulation():
-    # 1. Load data and train model
-    print("Loading data and training model on historical data...")
+    print("Loading historical data and fitting SARIMAX model...")
     df_hist = pd.read_csv('data/processed/Acquisition_LIN_clean.csv')
     df_hist['date'] = pd.to_datetime(df_hist['date'])
     model = evaluate_model(df_hist)
-    
-    # 2. Generate future dates
+
     last_date = df_hist['date'].max()
     future_df = generate_future_calendar(last_date + pd.Timedelta(days=1), '2026-12-31')
-    
-    # 3. Simulate Scenarios
-    # Scenario A: Optimal (0.0 outages)
-    future_A = future_df.copy()
+
+    # Scenario A: Service always available (Disponibilite_de_service = 0)
+    future_A = future_df[['ferie', 'week_end']].copy()
     future_A['Disponibilite_de_service'] = 0.0
-    future_A['predicted_total'] = model.predict(future_A)
-    res_A = apply_ratio(future_A, 'Scenario A (Optimal: No Outages)')
-    
-    # Scenario B: Standard (Outages happen 8% of weekdays)
-    np.random.seed(42)
-    future_B = future_df.copy()
-    is_weekday = (future_B['week_end'] == 0) & (future_B['ferie'] == 0)
-    future_B['Disponibilite_de_service'] = 0.0
-    # Randomly assign 1.0 to 8% of weekdays
-    future_B.loc[is_weekday, 'Disponibilite_de_service'] = np.random.choice([0.0, 1.0], size=is_weekday.sum(), p=[0.92, 0.08])
-    future_B['predicted_total'] = model.predict(future_B)
-    res_B = apply_ratio(future_B, 'Scenario B (Standard: Historical Outage Rate)')
-    
-    # 4. Combine and save
-    all_forecasts = pd.concat([res_A, res_B], ignore_index=True)
-    all_forecasts.to_csv('data/processed/Forecast_Scenarios.csv', index=False)
-    print("\nForecasts generated and saved to data/processed/Forecast_Scenarios.csv")
-    
-    # Print some summaries
-    print("\n--- Summary of Scenario A (Optimal) ---")
-    monthly_A = res_A[res_A['scenario'] == 'Scenario A (Optimal: No Outages)'].set_index('date').resample('ME').sum()
-    monthly_A['digital_pct'] = monthly_A['digital_volume'] / monthly_A['total_volume'] * 100
-    print(monthly_A[['total_volume', 'digital_volume', 'bureau_volume', 'digital_pct']])
+    pred_available = np.maximum(0, model.predict(future_A))
+
+    # Scenario B: Service unavailable every day (Disponibilite_de_service = 1)
+    future_B = future_df[['ferie', 'week_end']].copy()
+    future_B['Disponibilite_de_service'] = 1.0
+    pred_unavailable = np.maximum(0, model.predict(future_B))
+
+    output_df = pd.DataFrame({
+        'date': future_df['date'].dt.strftime('%Y-%m-%d'),
+        'ferie': future_df['ferie'],
+        'week_end': future_df['week_end'],
+        'prediction_available': pred_available,
+        'prediction_unavailable': pred_unavailable
+    })
+
+    output_path = 'data/processed/Forecast_Scenarios.csv'
+    output_df.to_csv(output_path, index=False)
+    print(f"Forecast scenarios exported side by side to {output_path}")
+
+    print("\nFirst 10 rows of forecast output:")
+    print(output_df.head(10).to_string(index=False))
+
+    return output_df
 
 if __name__ == '__main__':
     run_simulation()
+
