@@ -20,6 +20,7 @@ def prepare_total_volume_data(df):
         'ferie': 'first',
         'week_end': 'first',
         'Disponibilite_de_service': 'first',
+        'bug_technique': 'max',
         'month': 'first',
         'day_of_week': 'first'
     }).reset_index()
@@ -30,7 +31,7 @@ class MLWrapper:
     def __init__(self, model_type='ridge'):
         self.model_type = model_type
         cat_features = ['month', 'day_of_week']
-        num_features = ['ferie', 'week_end', 'Disponibilite_de_service']
+        num_features = ['ferie', 'week_end', 'Disponibilite_de_service', 'bug_technique']
         
         preprocessor = ColumnTransformer([
             ('cat', OneHotEncoder(handle_unknown='ignore'), cat_features),
@@ -60,6 +61,7 @@ class ProphetWrapper:
         self.model = Prophet(daily_seasonality=False, yearly_seasonality=True, weekly_seasonality=True)
         self.model.add_regressor('ferie')
         self.model.add_regressor('Disponibilite_de_service')
+        self.model.add_regressor('bug_technique')
         df_p = X.copy()
         df_p['ds'] = df_p['date']
         df_p['y'] = y
@@ -76,13 +78,13 @@ class SARIMAXWrapper:
         self.model_res = None
         
     def fit(self, X, y):
-        exog = X[['ferie', 'week_end', 'Disponibilite_de_service']]
+        exog = X[['ferie', 'week_end', 'Disponibilite_de_service', 'bug_technique']]
         # simple SARIMAX (1, 1, 1) x (1, 0, 1, 7)
         self.model = sm.tsa.SARIMAX(y.values, exog=exog.values, order=(1, 1, 1), seasonal_order=(1, 0, 1, 7), enforce_stationarity=False, enforce_invertibility=False)
         self.model_res = self.model.fit(disp=False)
-        
+
     def predict(self, X):
-        exog = X[['ferie', 'week_end', 'Disponibilite_de_service']]
+        exog = X[['ferie', 'week_end', 'Disponibilite_de_service', 'bug_technique']]
         return self.model_res.forecast(steps=len(X), exog=exog.values)
 
 def run_benchmark():
@@ -93,7 +95,7 @@ def run_benchmark():
     # We will use the last 5 periods of 30 days for testing (150 days total for CV testing)
     tscv = TimeSeriesSplit(n_splits=5, test_size=30)
     
-    X = daily_df[['date', 'month', 'day_of_week', 'ferie', 'week_end', 'Disponibilite_de_service']]
+    X = daily_df[['date', 'month', 'day_of_week', 'ferie', 'week_end', 'Disponibilite_de_service', 'bug_technique']]
     y = daily_df['t_verified_canal_sum']
     
     models = {
